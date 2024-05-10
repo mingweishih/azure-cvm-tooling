@@ -9,6 +9,7 @@ use report::{AttestationReport, Validateable};
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -32,6 +33,10 @@ enum Action {
         /// Retrieve certificates from IMDS endpoint
         #[arg(short, long)]
         imds: bool,
+
+        /// Output report file in raw bytes
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     Quote {
         /// A nonce to use for the quote
@@ -44,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     match args.action {
-        Action::Report { file, imds, print } => {
+        Action::Report { file, imds, print, output } => {
             let bytes = match file {
                 Some(file_name) => read_file(&file_name)?,
                 None => vtpm::get_report()?,
@@ -70,6 +75,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             if print {
                 println!("{}", snp_report);
             }
+
+            if let Some(file_name) = output {
+                let bytes = bincode::serialize::<AttestationReport>(&snp_report)?;
+                write_file(&file_name, &bytes)?;
+            }
         }
         Action::Quote { nonce } => {
             println!("quote byte size: {}", nonce.as_bytes().len());
@@ -86,4 +96,10 @@ fn read_file(path: &PathBuf) -> Result<Vec<u8>, std::io::Error> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+fn write_file(path: &PathBuf, bytes: &[u8]) -> Result<(), std::io::Error> {
+    let mut file = File::create(path)?;
+    file.write(bytes)?;
+    Ok(())
 }

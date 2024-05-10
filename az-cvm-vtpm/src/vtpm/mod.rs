@@ -25,6 +25,7 @@ mod verify;
 pub use verify::VerifyError;
 
 const VTPM_HCL_REPORT_NV_INDEX: u32 = 0x01400001;
+const VTPM_AK_CERT_NV_INDEX: u32 = 0x1c101d0;
 const VTPM_AK_HANDLE: u32 = 0x81000003;
 const VTPM_QUOTE_PCR_SLOTS: [PcrSlot; 24] = [
     PcrSlot::Slot0,
@@ -71,6 +72,20 @@ pub fn get_report() -> Result<Vec<u8>, ReportError> {
 
     let report = nv::read_full(&mut context, NvAuth::Owner, nv_index)?;
     Ok(report)
+}
+
+/// Get a HCL report from an nvindex
+pub fn get_ak_cert() -> Result<Vec<u8>, ReportError> {
+    use tss_esapi::handles::NvIndexTpmHandle;
+    let nv_index = NvIndexTpmHandle::new(VTPM_AK_CERT_NV_INDEX)?;
+
+    let conf: TctiNameConf = TctiNameConf::Device(DeviceConfig::default());
+    let mut context = Context::new(conf)?;
+    let auth_session = AuthSession::Password;
+    context.set_sessions((Some(auth_session), None, None));
+
+    let ak_cert = nv::read_full(&mut context, NvAuth::Owner, nv_index)?;
+    Ok(ak_cert)
 }
 
 #[derive(Error, Debug)]
@@ -207,4 +222,46 @@ pub fn get_quote(data: &[u8]) -> Result<Quote, QuoteError> {
         message,
         pcrs,
     })
+}
+
+mod tests {
+    use super::*;
+    use std::fs::File;
+use std::io::prelude::*;
+
+    #[test]
+    fn test_ak_cert() {
+        let result = get_ak_cert();
+        assert!(result.is_ok());
+        let ak_cert = result.unwrap();
+        println!("ak cert ({}): {:x?}", ak_cert.len(), &ak_cert);
+
+        println!("{}", String::from_utf8_lossy(&ak_cert));
+
+        let end = ak_cert.iter().rposition(|&x| x != 0);
+        assert!(end.is_some());
+        let end = end.unwrap();
+
+        println!("end {:#04x?}", ak_cert[end]);
+
+        for i in 0..end + 1 {
+            print!("{:#04x}, ", &ak_cert[i]);
+        }
+        // println!("ak cert ({}) {:02x?}", end, &ak_cert[..end + 1]);
+        println!("");
+
+        let result = openssl::x509::X509::from_der(&ak_cert[..end + 1]);
+        println!("result: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_report() {
+        let result = get_report();
+        assert!(result.is_ok());
+        let report = result.unwrap();
+        println!("ak cert ({}): {:x?}", report.len(), &report);
+
+        println!("{}", String::from_utf8_lossy(&report));
+    }
 }
